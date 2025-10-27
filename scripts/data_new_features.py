@@ -20,7 +20,7 @@ def asignar_generacion(plataforma):
     if plataforma in ["NES", "2600", "TG16"]:
         return "3ª Gen"
     elif plataforma in ["SNES", "GEN", "GB", "SCD"]:
-        return "4ª Gen"
+        return "4ª Gen
     elif plataforma in ["PS", "N64", "SAT"]:
         return "5ª Gen"
     elif plataforma in ["PS2", "GC", "XB", "GBA"]:
