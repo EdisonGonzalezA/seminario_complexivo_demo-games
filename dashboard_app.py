@@ -1,24 +1,39 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import joblib
+import os
 
 # configuración de nuestra página
 st.set_page_config(layout="wide")
 
-# ruta de los datos
-DATA_PATH = r"D:\UNIANDES\Carrera de Software\Titulacion\Seminario_Python\seminario_complexivo_demo-games\data\processed\games_clean.csv"
+# ruta de datos
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PATH = os.path.join(BASE_DIR, "data", "processed", "games_clean.csv")
+ENCODER_PATH = os.path.join(BASE_DIR, "models", "onehot_encoder.joblib")
+MODEL_PATH = os.path.join(BASE_DIR, "models", "lgbm_regressor_default.joblib")
+
 
 # cargar datos
-
-
 @st.cache_data
 def cargar_datos(path):
     """función para cargar datos con caché"""
     return pd.read_csv(path)
 
+# @st.cache_resourse es para recursos que no sean datos (modelos, BDs)
 
-# datos cargados
+
+@st.cache_resource
+def cargar_archivos(path):
+    """Carga un archivo .joblib (modelo o encoder)"""
+    print(f"Cragando archivos desde: {path}")
+    return joblib.load(path)
+
+
+# carga de datos y modelos
 games_clean = cargar_datos(DATA_PATH)
+modelo = cargar_archivos(MODEL_PATH)
+encoder = cargar_archivos(ENCODER_PATH)
 
 
 # titulo
@@ -223,3 +238,97 @@ with tab1:
         )
 
         st.plotly_chart(fig_treemap, use_container_width=True)
+
+
+# PESTAÑA 2
+with tab2:
+    st.header("Prediccion de Ventas Globales")
+    st.write("Esta pestaña utiliza el modelo de machine learnin cargado localmente para predecir las ventas")
+
+    try:
+        platform_options = list(encoder.categories_[0])
+        genre_options = list(encoder.categories_[1])
+        rating_options = list(encoder.categories_[2])
+        gen_platform_options = list(encoder.categories_[3])
+        class_score_options = list(encoder.categories_[4])
+    except Exception as e:
+        st.error(f"Error al cargar las categorias del encoder: {e}")
+        platform_options, genre_options, rating_options, gen_platform_options, class_score_options = [], [], [], [], []
+
+    # dos n uevas columnas
+    col_inputs, col_resultados = st.columns(2)
+
+    with col_inputs:
+        st.subheader("Parametros del Videojuegos")
+
+        with st.form("prediction_form"):
+
+            # inputs categoricos
+            # model = cargar_archivos(MODEL_PATH)
+            st.write("##### Caracteristicas Categoricas")
+            platform = st.selectbox("Plataforma:", options=platform_options)
+            genre = st.selectbox("Género:", options=genre_options)
+            rating_esrb = st.selectbox(
+                "Clasificacion ESRB:", options=rating_options)
+            gen_platform = st.selectbox(
+                "Generacion de Plataforma:", options=gen_platform_options)
+            classification_user_score = st.selectbox(
+                "Classificacion de Usuario:", options=class_score_options)
+
+            # inputs numericos
+            st.write("##### Caracteristicas Numericas")
+            year_of_release = st.slider(
+                "Año de Lanzamiento:", 1980, 2016, 2010)
+            critic_score = st.slider(
+                "Puntaje de Críticos (0-100):", 0.0, 100.0, 80.0)
+            user_score = st.slider(
+                "Puntaje de Usuarios (0-10):", 0.0, 10.0, 8.0, step=0.1)
+
+            # boton de submit el form
+            submit_button = st.form_submit_button(label="Predecir Ventas")
+
+        if submit_button:
+            # recolectar los inputs en un diccionario
+            input_data = {
+                "platform": platform,
+                "genre": genre,
+                "rating_esrb": rating_esrb,
+                "gen_platform": gen_platform,
+                "classification_user_score": classification_user_score,
+                "year_of_release": year_of_release,
+                "user_score": user_score,
+                "critic_score": critic_score
+            }
+
+            # definir las columnas en el orden exacto de arriba
+            col_categoricas = ["platform", "genre", "rating_esrb",
+                               "gen_platform", "classification_user_score"]
+            col_numericas = ["year_of_release", "user_score", "critic_score"]
+
+            # convertir a data farme de una sola fila
+            input_df_cat = pd.DataFrame([input_data], columns=col_categoricas)
+            input_df_num = pd.DataFrame([input_data], columns=col_numericas)
+
+            try:
+                input_cat_encoded = encoder.transform(input_df_cat)
+                nuevas_columnas_encoded = encoder.get_feature_names_out(
+                    col_categoricas)
+
+                input_df_encoded = pd.DataFrame(
+                    input_cat_encoded, columns=nuevas_columnas_encoded)
+
+                X_final = pd.concat([input_df_num.reset_index(
+                    drop=True), input_df_encoded.reset_index(drop=True)], axis=1)
+
+                prediccion = modelo.predict(X_final)
+                prediccion_valor = prediccion[0]
+
+                with col_resultados:
+                    st.subheader("Resultados de la Predicción")
+                    st.metric(label="Ventas Globales Predichas",
+                              value=f"$ {prediccion_valor:,.2f} Millones")
+                    st.success("Prediccion realizada!!")
+
+            except Exception as e:
+                with col_resultados:
+                    st.error(f"Error al realizar la predicción: {e}")
